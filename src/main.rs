@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
-use inquire::Text;
+use inquire::{Confirm, Text};
 use libsql::Builder;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -100,9 +100,44 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
         .context("Did not receive response when downloading PDF.")?;
 
     // Setup directory structure for this new paper
+    // Prompt user to overwrite if the canonicalized path already exists
+    // Note that the entire path, not just the paper name has to match
     let base_path = Path::new(".").join(&directory_name);
-    fs::create_dir_all(&base_path).context("Error creating base directory.")?;
     let summary_path = base_path.join("summary");
+    let canonical_base_path = fs::canonicalize(Path::new("."))
+        .context("Error canonicalizing current directory.")?
+        .join(&directory_name)
+        .into_os_string()
+        .into_string()
+        .unwrap();
+
+    let mut rows = conn
+        .query(
+            "SELECT canonical_base_path FROM papers WHERE canonical_base_path = ?1",
+            [canonical_base_path.clone()],
+        )
+        .await?;
+
+    if let Some(row) = rows.next().await? {
+        let existing_canonicalized_path: String = row.get(0)?;
+
+        let ans = Confirm::new(&format!(
+            "Paper '{}' already exists in the database at {}. Overwrite?",
+            title, existing_canonicalized_path
+        ))
+        .with_default(false)
+        .with_help_message("This will update the DB entry and remove the old paper directory. This means that your notes will be deleted.")
+        .prompt()?;
+
+        if ans {
+            fs::remove_dir_all(&base_path)?;
+        } else {
+            println!("Add operation cancelled.");
+            return Ok(());
+        }
+    }
+
+    fs::create_dir_all(&base_path).context("Error creating base directory.")?;
     fs::create_dir_all(&summary_path).context("Error creating summary directory")?;
 
     // Download PDF
@@ -125,12 +160,8 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     fs::write(summary_path.join("main.typ"), typ_content)?;
 
     // Update database
-    let canonical_base_path = fs::canonicalize(base_path.as_path())?
-        .into_os_string()
-        .into_string()
-        .expect("Error canonicalizing paper base directory.");
     conn.execute(
-        "INSERT INTO papers (canonical_base_path, url, date_added) VALUES (?1, ?2, ?3)",
+        "INSERT OR REPLACE INTO papers (canonical_base_path, url, date_added) VALUES (?1, ?2, ?3)",
         (
             canonical_base_path.clone(),
             metadata.url.clone(),
