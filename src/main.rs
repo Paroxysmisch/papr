@@ -36,7 +36,7 @@ struct PaperMetadata {
     tags: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TagSelection {
     Tag {
         tag_name: String,
@@ -49,19 +49,20 @@ enum TagSelection {
 impl fmt::Display for TagSelection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Tag {tag_name, usage_count, tag_id} => {
+            Self::Tag {
+                tag_name,
+                usage_count,
+                tag_id,
+            } => {
                 write!(
                     f,
                     "Tag name: {}, Usage count: {}, Tag ID: {}",
                     tag_name, usage_count, tag_id
                 )
-            },
+            }
             Self::AddNewTag => {
-                write!(
-                    f,
-                    "Add new tag...",
-                )
-            },
+                write!(f, "Add new tag...",)
+            }
         }
     }
 }
@@ -119,8 +120,38 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
         .context("Invalid URL.")?;
     let mut cur_tags = get_all_tags(conn).await?;
     cur_tags.push(TagSelection::AddNewTag);
-    let _tag_selections =
+    cur_tags.sort();
+    let tag_selections =
         MultiSelect::new("Select tags (Space to toggle, Enter to confirm):", cur_tags).prompt()?;
+    let mut final_tag_names = Vec::new();
+
+    for selection in tag_selections {
+        match selection {
+            TagSelection::AddNewTag => {
+                // Prompt for custom additional tags
+                let new_tags_input = Text::new(
+                    "Enter new tags (separated by commas). Note that tags are case insensitive:",
+                )
+                .with_help_message("e.g. gnn, transformer, mamba")
+                .prompt()?;
+
+                for t in new_tags_input.split(',') {
+                    let trimmed = t.trim().to_string();
+                    if !trimmed.is_empty() {
+                        final_tag_names.push(trimmed);
+                    }
+                }
+            }
+            TagSelection::Tag {
+                tag_name,
+                usage_count: _,
+                tag_id: _,
+            } => final_tag_names.push(tag_name),
+        }
+    }
+
+    final_tag_names.sort();
+    final_tag_names.dedup();
 
     // Start downloading PDF before creating any directories for easy clean-up,
     // in case of failure to retrieve from URL
@@ -193,7 +224,7 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     let typ_content = format!("= Notes on: {}\n\nLink: {}\n", title, url);
     fs::write(summary_path.join("main.typ"), typ_content)?;
 
-    // Update database
+    // Update papers table
     conn.execute(
         "INSERT OR REPLACE INTO papers (canonical_base_path, url, date_added) VALUES (?1, ?2, ?3)",
         (
@@ -203,7 +234,39 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
         ),
     )
     .await
-    .context("Error updating database.")?;
+    .context("Error updating papers table.")?;
+
+    // Update the tags and paper_tags tables
+    let paper_id: u32 = conn
+        .query("select id from papers where canonical_base_path = ?1", [canonical_base_path.clone()])
+        .await?
+        .next()
+        .await?
+        .unwrap()
+        .get(0)?;
+
+    for tag_name in final_tag_names {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
+            [tag_name.clone()],
+        )
+        .await.context("Error updating tags table")?;
+
+        let tag_id: u32 = conn
+            .query("select id from tags where name = ?1", [tag_name])
+            .await?
+            .next()
+            .await?
+            .unwrap()
+            .get(0)?;
+
+        // Link paper to tag
+        conn.execute(
+            "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)",
+            (paper_id, tag_id),
+        )
+        .await?;
+    }
 
     println!("Successfully added '{}' to your library!", title);
     Ok(())
