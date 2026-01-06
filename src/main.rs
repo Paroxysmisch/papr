@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
-use inquire::{Confirm, Text};
+use inquire::{Confirm, MultiSelect, Text};
 use libsql::Builder;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fmt, fs};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -34,6 +34,36 @@ struct PaperMetadata {
     url: String,
     date_added: String, // Format stored is `yyyy-mm-dd`
     tags: Vec<String>,
+}
+
+#[derive(Debug)]
+enum TagSelection {
+    Tag {
+        tag_name: String,
+        usage_count: usize,
+        tag_id: i32,
+    },
+    AddNewTag,
+}
+
+impl fmt::Display for TagSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tag {tag_name, usage_count, tag_id} => {
+                write!(
+                    f,
+                    "Tag name: {}, Usage count: {}, Tag ID: {}",
+                    tag_name, usage_count, tag_id
+                )
+            },
+            Self::AddNewTag => {
+                write!(
+                    f,
+                    "Add new tag...",
+                )
+            },
+        }
+    }
 }
 
 #[tokio::main]
@@ -87,6 +117,10 @@ async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     let url = Text::new("Paper PDF URL:")
         .prompt()
         .context("Invalid URL.")?;
+    let mut cur_tags = get_all_tags(conn).await?;
+    cur_tags.push(TagSelection::AddNewTag);
+    let _tag_selections =
+        MultiSelect::new("Select tags (Space to toggle, Enter to confirm):", cur_tags).prompt()?;
 
     // Start downloading PDF before creating any directories for easy clean-up,
     // in case of failure to retrieve from URL
@@ -181,4 +215,31 @@ fn get_db_path() -> Result<PathBuf> {
     let data_dir = proj_dirs.data_dir();
     fs::create_dir_all(data_dir)?;
     Ok(data_dir.join("papr.db"))
+}
+
+async fn get_all_tags(conn: &libsql::Connection) -> Result<Vec<TagSelection>> {
+    let mut rows = conn
+        .query(
+            "SELECT t.name, COUNT(pt.paper_id), t.id as count
+                FROM tags t
+                LEFT JOIN paper_tags pt ON t.id = pt.tag_id
+                GROUP BY t.name
+                ORDER BY count DESC;",
+            (),
+        )
+        .await?;
+    let mut tags = Vec::new();
+
+    while let Some(row) = rows.next().await? {
+        let tag_name: String = row.get(0)?;
+        let usage_count: u32 = row.get(1)?;
+        let tag_id: i32 = row.get(2)?;
+        tags.push(TagSelection::Tag {
+            tag_name,
+            usage_count: usage_count as usize,
+            tag_id,
+        });
+    }
+
+    Ok(tags)
 }
