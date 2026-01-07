@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use libsql::Builder;
-use papr::{get_db_path, handle_add, handle_remove};
+use papr::{get_db_path, handle_add, handle_remove, handle_search};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Add => handle_add(&conn).await?,
-        Commands::Search { query } => println!("Search stub for: {}", query),
+        Commands::Search { query } => handle_search(&conn, query).await?,
         Commands::Remove { query } => handle_remove(&conn, query).await?,
         Commands::Open { query } => println!("Open stub for ID: {}", query),
         Commands::Sync => println!("Sync stub"),

@@ -230,6 +230,13 @@ pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<(
     Ok(())
 }
 
+pub async fn handle_search(conn: &libsql::Connection, query: String) -> Result<()> {
+    let test = search::fuzzy_search_pdfs(conn, &query).await?;
+    println!("{test:#?}");
+
+    Ok(())
+}
+
 pub fn get_db_path() -> Result<PathBuf> {
     let proj_dirs = ProjectDirs::from("com", "", "papr")
         .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
