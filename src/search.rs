@@ -1,14 +1,32 @@
 use anyhow::Result;
 use nucleo_matcher::{
-    pattern::{Atom, AtomKind, CaseMatching, Normalization},
     Config, Matcher,
+    pattern::{Atom, AtomKind, CaseMatching, Normalization},
 };
+use std::fmt;
 use std::path::Path;
+
+pub struct PaperMatch {
+    pub id: u32,
+    pub canonical_base_path: String,
+    url: String,
+    score: u32,
+}
+
+impl fmt::Display for PaperMatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Path: {}\nURL: {}\nID: {}\nScore: {}",
+            self.canonical_base_path, self.url, self.id, self.score
+        )
+    }
+}
 
 pub async fn fuzzy_search_papers(
     conn: &libsql::Connection,
     query: &str,
-) -> Result<Vec<(u32, String, String, u32)>> {
+) -> Result<Vec<PaperMatch>> {
     let mut rows = conn
         .query("SELECT id, canonical_base_path, url FROM papers", ())
         .await?;
@@ -40,7 +58,12 @@ pub async fn fuzzy_search_papers(
             let matches = needle.match_list(list_title, &mut matcher);
 
             if let Some((_, score)) = matches.into_iter().next() {
-                res.push((id, canonical_base_path, url, score as u32));
+                res.push(PaperMatch {
+                    id,
+                    canonical_base_path,
+                    url,
+                    score: (score as u32),
+                });
             }
         }
     }

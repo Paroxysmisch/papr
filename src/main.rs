@@ -49,8 +49,8 @@ async fn main() -> Result<()> {
         CREATE TABLE IF NOT EXISTS paper_tags (
             paper_id INTEGER,
             tag_id INTEGER,
-            FOREIGN KEY(paper_id) REFERENCES papers(id),
-            FOREIGN KEY(tag_id) REFERENCES tags(id)
+            FOREIGN KEY(paper_id) REFERENCES papers(id) ON DELETE CASCADE,
+            FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );",
     )
     .await

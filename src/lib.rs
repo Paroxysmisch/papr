@@ -7,6 +7,8 @@ use inquire::{Confirm, MultiSelect, Text};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
+use crate::search::PaperMatch;
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TagSelection {
     Tag {
@@ -197,9 +199,34 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
 
 pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<()> {
     let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
-    for (_id, canonical_base_path, _url, _score) in matching_papers {
-        println!("{canonical_base_path}");
+    let paper_selections = MultiSelect::new(
+        "Select papers to remove (Space to toggle, Enter to confirm):",
+        matching_papers,
+    )
+    .prompt()
+    .context("No papers/available selected for deletion.")?;
+
+    for PaperMatch {
+        id,
+        canonical_base_path,
+        ..
+    } in paper_selections
+    {
+        // Delete the paper (this triggers cascade to clear paper_tags)
+        conn.execute("DELETE FROM papers WHERE id = ?1", [id])
+            .await?;
+
+        // Prune orphan tags that no longer belong to any paper
+        conn.execute(
+            "DELETE FROM tags 
+             WHERE id NOT IN (SELECT DISTINCT tag_id FROM paper_tags)",
+            (),
+        )
+        .await?;
+
+        fs::remove_dir_all(&canonical_base_path)?;
     }
+
     Ok(())
 }
 
