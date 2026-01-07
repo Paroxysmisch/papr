@@ -4,18 +4,8 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use directories::ProjectDirs;
 use inquire::{Confirm, MultiSelect, Text};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
-
-// What is stored in `metadata.toml`,
-// and is thus user modifiable
-#[derive(Serialize, Deserialize)]
-struct PaperMetadata {
-    url: String,
-    date_added: String, // Format stored is `yyyy-mm-dd`
-    tags: Vec<String>,
-}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TagSelection {
@@ -149,16 +139,6 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     let mut file = fs::File::create(&pdf_file_path)?;
     std::io::copy(&mut content.as_ref(), &mut file)?;
 
-    // Create Metadata TOML
-    let metadata = PaperMetadata {
-        url: url.clone(),
-        date_added: Local::now().format("%Y-%m-%d").to_string(),
-        tags: vec![], // Empty initially for the user to fill in later
-    };
-    let toml_string = toml::to_string_pretty(&metadata).context("Error parsing metadata TOML.")?;
-    let metadata_path = base_path.join("metadata.toml");
-    fs::write(&metadata_path, toml_string)?;
-
     // Create `main.typ` entry point
     let typ_content = format!("= Notes on: {}\n\nLink: {}\n", title, url);
     fs::write(summary_path.join("main.typ"), typ_content)?;
@@ -168,8 +148,8 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
         "INSERT OR REPLACE INTO papers (canonical_base_path, url, date_added) VALUES (?1, ?2, ?3)",
         (
             canonical_base_path.clone(),
-            metadata.url.clone(),
-            metadata.date_added.clone(),
+            url.clone(),
+            Local::now().format("%Y-%m-%d").to_string(),
         ),
     )
     .await
