@@ -3,7 +3,7 @@ mod search;
 use anyhow::{Context, Result};
 use chrono::Local;
 use directories::ProjectDirs;
-use inquire::{Confirm, MultiSelect, Text};
+use inquire::{Confirm, MultiSelect, Select, Text};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
@@ -40,15 +40,7 @@ impl fmt::Display for TagSelection {
     }
 }
 
-pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
-    // Prompt for title and URL
-    let title = Text::new("Paper title (used for directory name):")
-        .prompt()
-        .context("Invalid title.")?;
-    let directory_name = title.to_lowercase().replace(" ", "_");
-    let url = Text::new("Paper PDF URL:")
-        .prompt()
-        .context("Invalid URL.")?;
+async fn get_tag_selections(conn: &libsql::Connection) -> Result<Vec<String>> {
     let mut cur_tags = get_all_tags(conn).await?;
     cur_tags.push(TagSelection::AddNewTag);
     cur_tags.sort();
@@ -83,6 +75,48 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
 
     final_tag_names.sort();
     final_tag_names.dedup();
+
+    Ok(final_tag_names)
+}
+
+async fn tag_paper(conn: &libsql::Connection, paper_id: u32, tag_names: Vec<String>) -> Result<()> {
+    for tag_name in tag_names {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
+            [tag_name.clone()],
+        )
+        .await
+        .context("Error updating tags table")?;
+
+        let tag_id: u32 = conn
+            .query("select id from tags where name = ?1", [tag_name])
+            .await?
+            .next()
+            .await?
+            .unwrap()
+            .get(0)?;
+
+        // Link paper to tag
+        conn.execute(
+            "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)",
+            (paper_id, tag_id),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
+    // Prompt for title and URL
+    let title = Text::new("Paper title (used for directory name):")
+        .prompt()
+        .context("Invalid title.")?;
+    let directory_name = title.to_lowercase().replace(" ", "_");
+    let url = Text::new("Paper PDF URL:")
+        .prompt()
+        .context("Invalid URL.")?;
+    let final_tag_names = get_tag_selections(conn).await?;
 
     // Start downloading PDF before creating any directories for easy clean-up,
     // in case of failure to retrieve from URL
@@ -169,29 +203,7 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
         .unwrap()
         .get(0)?;
 
-    for tag_name in final_tag_names {
-        conn.execute(
-            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
-            [tag_name.clone()],
-        )
-        .await
-        .context("Error updating tags table")?;
-
-        let tag_id: u32 = conn
-            .query("select id from tags where name = ?1", [tag_name])
-            .await?
-            .next()
-            .await?
-            .unwrap()
-            .get(0)?;
-
-        // Link paper to tag
-        conn.execute(
-            "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)",
-            (paper_id, tag_id),
-        )
-        .await?;
-    }
+    tag_paper(conn, paper_id, final_tag_names).await?;
 
     println!("Successfully added '{}' to your library!", title);
     Ok(())
@@ -199,12 +211,15 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
 
 pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<()> {
     let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
+    if matching_papers.is_empty() {
+        anyhow::bail!("No papers found matching '{}'", query);
+    }
     let paper_selections = MultiSelect::new(
         "Select papers to remove (Space to toggle, Enter to confirm):",
         matching_papers,
     )
     .prompt()
-    .context("No papers/available selected for deletion.")?;
+    .context("No papers selected for deletion.")?;
 
     for PaperMatch {
         id,
@@ -265,6 +280,36 @@ pub async fn handle_search(
             );
         }
     }
+
+    Ok(())
+}
+
+pub async fn handle_retag(conn: &libsql::Connection, query: String) -> Result<()> {
+    let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
+    if matching_papers.is_empty() {
+        anyhow::bail!("No papers found matching '{}'", query);
+    }
+    let paper_selection = Select::new("Select paper to retag:", matching_papers)
+        .prompt()
+        .context("No paper selected for retagging.")?;
+
+    let paper_id = paper_selection.id; // Assuming the first element of the tuple is the ID
+
+    let final_tag_names = get_tag_selections(conn).await?;
+
+    // Clear existing associations for this paper
+    conn.execute("DELETE FROM paper_tags WHERE paper_id = ?1", [paper_id])
+        .await?;
+
+    // Prune Orphaned Tags
+    // This deletes tags that are no longer linked to ANY paper
+    conn.execute(
+        "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM paper_tags)",
+        (),
+    )
+    .await?;
+
+    tag_paper(conn, paper_id, final_tag_names).await?;
 
     Ok(())
 }

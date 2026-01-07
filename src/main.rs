@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use libsql::Builder;
-use papr::{get_db_path, handle_add, handle_remove, handle_search};
+use papr::{get_db_path, handle_add, handle_remove, handle_retag, handle_search};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -32,6 +32,8 @@ enum Commands {
     Open { query: String },
     /// Sync the DB
     Sync,
+    /// Change the tags assigned to a paper
+    Tag { query: String },
 }
 
 #[tokio::main]
@@ -74,6 +76,7 @@ async fn main() -> Result<()> {
         Commands::Remove { query } => handle_remove(&conn, query).await?,
         Commands::Open { query } => println!("Open stub for ID: {}", query),
         Commands::Sync => println!("Sync stub"),
+        Commands::Tag { query } => handle_retag(&conn, query).await?,
     }
 
     Ok(())
