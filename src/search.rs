@@ -1,8 +1,8 @@
 use anyhow::Result;
 use nucleo::Nucleo;
 use nucleo_matcher::{
-    Config, Matcher, Utf32String,
     pattern::{Atom, AtomKind, CaseMatching, Normalization},
+    Config, Matcher, Utf32String,
 };
 use std::fmt;
 use std::path::Path;
@@ -81,12 +81,11 @@ pub struct PdfMatch {
     pub excerpt: String,
 }
 
-pub async fn fuzzy_search_pdfs(
+async fn filter_tagged_papers(
     conn: &libsql::Connection,
-    query: &str,
     tags: Option<Vec<String>>,
-) -> Result<Vec<PdfMatch>> {
-    let mut rows = match tags {
+) -> libsql::Result<libsql::Rows> {
+    match tags {
         Some(t_list) if !t_list.is_empty() => {
             // Create a string of placeholders: "?, ?, ?"
             let placeholders = t_list.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
@@ -107,14 +106,22 @@ pub async fn fuzzy_search_pdfs(
             // Add the tag count as the final parameter
             params.push((t_list.len() as i64).into());
 
-            conn.query(&sql, params).await?
+            conn.query(&sql, params).await
         }
         _ => {
             // If no tags provided, fetch all papers
             conn.query("SELECT canonical_base_path FROM papers", ())
-                .await?
+                .await
         }
-    };
+    }
+}
+
+pub async fn fuzzy_search_pdfs(
+    conn: &libsql::Connection,
+    query: &str,
+    tags: Option<Vec<String>>,
+) -> Result<Vec<PdfMatch>> {
+    let mut rows = filter_tagged_papers(conn, tags).await?;
 
     let mut all_matches = Vec::new();
     let mut matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
@@ -164,6 +171,84 @@ pub async fn fuzzy_search_pdfs(
             canonical_path: matched_item.data.2.clone(),
             page: matched_item.data.1 + 1, // 1-indexed for humans
             excerpt: format!("{}...", excerpt.trim().replace('\n', " (new line) ")),
+        });
+    }
+
+    Ok(all_matches)
+}
+
+pub struct TypstMatch {
+    pub canonical_path: String,
+    pub line_number: usize,
+    pub excerpt: String,
+}
+
+pub async fn fuzzy_search_typst(
+    conn: &libsql::Connection,
+    query: &str,
+    tags: Option<Vec<String>>,
+) -> Result<Vec<TypstMatch>> {
+    let mut rows = filter_tagged_papers(conn, tags).await?;
+
+    let mut all_matches = Vec::new();
+    let mut matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
+    let injector = matcher.injector();
+
+    matcher.pattern.reparse(
+        0,
+        query,
+        nucleo::pattern::CaseMatching::Ignore,
+        nucleo::pattern::Normalization::Smart,
+        false,
+    );
+
+    while let Some(row) = rows.next().await? {
+        let base_path_str: String = row.get(0)?;
+        let base_path = Path::new(&base_path_str);
+        let summary_path = base_path.join("summary");
+
+        if !summary_path.exists() {
+            continue;
+        }
+
+        // Walk the summary directory for any .typ files
+        for entry in std::fs::read_dir(summary_path)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.extension().map_or(false, |ext| ext == "typ") {
+                let content = std::fs::read_to_string(&path)?;
+
+                // Chunk by paragraph (double newline) to provide context
+                for (i, chunk) in content.split("\n\n").enumerate() {
+                    if chunk.trim().is_empty() {
+                        continue;
+                    }
+
+                    injector.push(
+                        (chunk.to_string(), i, base_path_str.clone()),
+                        |haystack, columns| {
+                            columns[0] = Utf32String::from(haystack.0.as_str());
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    // High timeout to ensure processing completes
+    matcher.tick(100000);
+
+    let snapshot = matcher.snapshot();
+    for matched_item in snapshot.matched_items(0..snapshot.matched_item_count()) {
+        let text = &matched_item.data.0;
+        let excerpt = text.chars().take(120).collect::<String>();
+
+        all_matches.push(TypstMatch {
+            canonical_path: matched_item.data.2.clone(),
+            // Using paragraph index as "place"
+            line_number: matched_item.data.1 + 1,
+            excerpt: format!("{}...", excerpt.trim().replace('\n', " ")),
         });
     }
 

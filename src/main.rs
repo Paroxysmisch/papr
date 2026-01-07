@@ -24,7 +24,7 @@ enum Commands {
 
         /// Also search inside the PDF text
         #[arg(long)]
-        _pdf: bool,
+        pdf: bool,
     },
     /// Remove a paper and its data
     Remove { query: String },
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Add => handle_add(&conn).await?,
-        Commands::Search { query, tags, _pdf } => handle_search(&conn, query, tags).await?,
+        Commands::Search { query, tags, pdf } => handle_search(&conn, query, tags, pdf).await?,
         Commands::Remove { query } => handle_remove(&conn, query).await?,
         Commands::Open { query } => println!("Open stub for ID: {}", query),
         Commands::Sync => println!("Sync stub"),

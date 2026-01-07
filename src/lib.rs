@@ -7,7 +7,7 @@ use inquire::{Confirm, MultiSelect, Text};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
-use crate::search::PaperMatch;
+use crate::search::{PaperMatch};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TagSelection {
@@ -234,19 +234,36 @@ pub async fn handle_search(
     conn: &libsql::Connection,
     query: String,
     tags: Option<Vec<String>>,
+    pdf: bool,
 ) -> Result<()> {
-    let results = search::fuzzy_search_pdfs(conn, &query, tags).await?;
-    for pdf_match_result in results {
-        println!(
-            "Paper name: {} ({})\nPage: {}\nExcerpt: {}\n",
-            Path::new(&pdf_match_result.canonical_path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown"),
-            pdf_match_result.canonical_path,
-            pdf_match_result.page,
-            pdf_match_result.excerpt
-        );
+    if pdf {
+        let results = search::fuzzy_search_pdfs(conn, &query, tags).await?;
+        for pdf_match_result in results {
+            println!(
+                "Paper name: {} ({})\nPage: {}\nExcerpt: {}\n",
+                Path::new(&pdf_match_result.canonical_path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown"),
+                pdf_match_result.canonical_path,
+                pdf_match_result.page,
+                pdf_match_result.excerpt
+            );
+        }
+    } else {
+        let results = search::fuzzy_search_typst(conn, &query, tags).await?;
+        for typst_match_result in results {
+            println!(
+                "Paper name: {} ({})\nLine: {}\nExcerpt: {}\n",
+                Path::new(&typst_match_result.canonical_path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown"),
+                typst_match_result.canonical_path,
+                typst_match_result.line_number,
+                typst_match_result.excerpt
+            );
+        }
     }
 
     Ok(())
