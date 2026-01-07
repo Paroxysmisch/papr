@@ -81,10 +81,40 @@ pub struct PdfMatch {
     pub excerpt: String,
 }
 
-pub async fn fuzzy_search_pdfs(conn: &libsql::Connection, query: &str) -> Result<Vec<PdfMatch>> {
-    let mut rows = conn
-        .query("SELECT canonical_base_path FROM papers", ())
-        .await?;
+pub async fn fuzzy_search_pdfs(
+    conn: &libsql::Connection,
+    query: &str,
+    tags: Option<Vec<String>>,
+) -> Result<Vec<PdfMatch>> {
+    let mut rows = match tags {
+        Some(t_list) if !t_list.is_empty() => {
+            // Create a string of placeholders: "?, ?, ?"
+            let placeholders = t_list.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
+            let sql = format!(
+                "SELECT p.canonical_base_path
+                 FROM papers p
+                 JOIN paper_tags pt ON p.id = pt.paper_id
+                 JOIN tags t ON pt.tag_id = t.id
+                 WHERE t.name IN ({})
+                 GROUP BY p.id
+                 HAVING COUNT(DISTINCT t.name) = ?",
+                placeholders
+            );
+
+            let mut params: Vec<libsql::Value> = t_list.iter().cloned().map(Into::into).collect();
+
+            // Add the tag count as the final parameter
+            params.push((t_list.len() as i64).into());
+
+            conn.query(&sql, params).await?
+        }
+        _ => {
+            // If no tags provided, fetch all papers
+            conn.query("SELECT canonical_base_path FROM papers", ())
+                .await?
+        }
+    };
 
     let mut all_matches = Vec::new();
     let mut matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);

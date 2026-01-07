@@ -230,8 +230,12 @@ pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<(
     Ok(())
 }
 
-pub async fn handle_search(conn: &libsql::Connection, query: String) -> Result<()> {
-    let results = search::fuzzy_search_pdfs(conn, &query).await?;
+pub async fn handle_search(
+    conn: &libsql::Connection,
+    query: String,
+    tags: Option<Vec<String>>,
+) -> Result<()> {
+    let results = search::fuzzy_search_pdfs(conn, &query, tags).await?;
     for pdf_match_result in results {
         println!(
             "Paper name: {} ({})\nPage: {}\nExcerpt: {}\n",
