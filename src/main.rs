@@ -56,6 +56,8 @@ async fn main() -> Result<()> {
     .await
     .context("Error initializing DB schema.")?;
 
+    println!();
+
     match cli.command {
         Commands::Add => handle_add(&conn).await?,
         Commands::Search { query } => handle_search(&conn, query).await?,

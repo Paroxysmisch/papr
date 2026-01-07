@@ -76,9 +76,8 @@ pub async fn fuzzy_search_papers(
 
 #[derive(Debug)]
 pub struct PdfMatch {
-    pub title: String,
+    pub canonical_path: String,
     pub page: usize,
-    pub score: u32,
     pub excerpt: String,
 }
 
@@ -88,76 +87,55 @@ pub async fn fuzzy_search_pdfs(conn: &libsql::Connection, query: &str) -> Result
         .await?;
 
     let mut all_matches = Vec::new();
+    let mut matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
+    let injector = matcher.injector();
+    matcher.pattern.reparse(
+        0,
+        query,
+        nucleo::pattern::CaseMatching::Ignore,
+        nucleo::pattern::Normalization::Smart,
+        false,
+    );
+
     while let Some(row) = rows.next().await? {
         let base_path_str: String = row.get(0)?;
         let base_path = Path::new(&base_path_str);
         let pdf_path = base_path.join("paper.pdf");
 
-        let title = base_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
-
         if !pdf_path.exists() {
             continue;
         }
 
-        // Load the PDF
-        let bytes = std::fs::read(&pdf_path)?;
-
-        // pdf-extract can provide page-by-page output
-        let out = pdf_extract::extract_text_from_mem(&bytes)?;
-
-        // Split by Form Feed character (common page separator in extraction)
-        // Note: some PDFs require more complex page-splitting depending on the library
-
-        for (i, page_text) in out.split('\u{000c}').enumerate() {
+        for (i, page_text) in pdf_extract::extract_text_by_pages(pdf_path)?
+            .into_iter()
+            .enumerate()
+        {
             if page_text.trim().is_empty() {
                 continue;
             }
 
-            // Setup a local matcher for this page to get a score
-            let mut matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
-            let injector = matcher.injector();
-            injector.push(String::from(page_text), |haystack, columns| {
-                columns[0] = Utf32String::from(haystack.as_str());
-            });
-
-            // Pattern match
-            matcher.pattern.reparse(
-                0,
-                query,
-                nucleo::pattern::CaseMatching::Ignore,
-                nucleo::pattern::Normalization::Smart,
-                false,
+            injector.push(
+                (String::from(page_text), i, base_path_str.clone()),
+                |haystack, columns| {
+                    columns[0] = Utf32String::from(haystack.0.as_str());
+                },
             );
-            matcher.tick(100000);
-
-            let snapshot = matcher.snapshot();
-            if let Some(matched_item) = snapshot
-                .matched_items(0..snapshot.matched_item_count())
-                .next()
-            {
-                // Create a small excerpt (first 100 chars of the page for context)
-                let excerpt = matched_item
-                    .data
-                    .chars()
-                    .take(120)
-                    .collect::<String>()
-                    .replace('\n', " ");
-
-                all_matches.push(PdfMatch {
-                    title: title.clone(),
-                    page: i + 1, // 1-indexed for humans
-                    score: 0,
-                    excerpt: format!("{}...", excerpt.trim()),
-                });
-            }
         }
     }
 
-    // Sort by score descending
-    all_matches.sort_by(|a, b| b.score.cmp(&a.score));
+    matcher.tick(100000);
+
+    let snapshot = matcher.snapshot();
+    for matched_item in snapshot.matched_items(0..snapshot.matched_item_count()) {
+        // Create a small excerpt (first 100 chars of the paragraph for context)
+        let excerpt = matched_item.data.0.chars().take(120).collect::<String>();
+
+        all_matches.push(PdfMatch {
+            canonical_path: matched_item.data.2.clone(),
+            page: matched_item.data.1 + 1, // 1-indexed for humans
+            excerpt: format!("{}...", excerpt.trim().replace('\n', " (new line) ")),
+        });
+    }
+
     Ok(all_matches)
 }

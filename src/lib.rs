@@ -231,8 +231,20 @@ pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<(
 }
 
 pub async fn handle_search(conn: &libsql::Connection, query: String) -> Result<()> {
-    let test = search::fuzzy_search_pdfs(conn, &query).await?;
-    println!("{test:#?}");
+    let results = search::fuzzy_search_pdfs(conn, &query).await?;
+    for pdf_match_result in results {
+        println!(
+            "Paper name: {} ({})\nPage: {}\nExcerpt: {}\n",
+            Path::new(&pdf_match_result.canonical_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown")
+                .to_string(),
+            pdf_match_result.canonical_path,
+            pdf_match_result.page,
+            pdf_match_result.excerpt
+        );
+    }
 
     Ok(())
 }
