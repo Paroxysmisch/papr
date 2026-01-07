@@ -14,3 +14,4 @@ reqwest = "0.13.1"
 serde = "1.0.228"
 tokio = { version = "1.49.0", features = ["full"] }
 toml = "0.9.10"
+nucleo-matcher = "0.3.1"

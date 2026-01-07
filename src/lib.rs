@@ -1,3 +1,5 @@
+mod search;
+
 use anyhow::{Context, Result};
 use chrono::Local;
 use directories::ProjectDirs;
@@ -210,6 +212,14 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     }
 
     println!("Successfully added '{}' to your library!", title);
+    Ok(())
+}
+
+pub async fn handle_remove(conn: &libsql::Connection, query: String) -> Result<()> {
+    let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
+    for (_id, canonical_base_path, _url, _score) in matching_papers {
+        println!("{canonical_base_path}");
+    }
     Ok(())
 }
 

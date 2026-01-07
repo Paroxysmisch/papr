@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use libsql::Builder;
-use papr::{get_db_path, handle_add};
+use papr::{get_db_path, handle_add, handle_remove};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -17,9 +17,11 @@ enum Commands {
     /// Search through indexed papers
     Search { query: String },
     /// Remove a paper and its data
-    Remove { id: i32 },
+    Remove { query: String },
     /// Compile and open the Typst summary
-    Open { id: i32 },
+    Open { query: String },
+    /// Sync the DB
+    Sync,
 }
 
 #[tokio::main]
@@ -57,8 +59,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Add => handle_add(&conn).await?,
         Commands::Search { query } => println!("Search stub for: {}", query),
-        Commands::Remove { id } => println!("Remove stub for ID: {}", id),
-        Commands::Open { id } => println!("Open stub for ID: {}", id),
+        Commands::Remove { query } => handle_remove(&conn, query).await?,
+        Commands::Open { query } => println!("Open stub for ID: {}", query),
+        Commands::Sync => println!("Sync stub"),
     }
 
     Ok(())
