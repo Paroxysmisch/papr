@@ -115,7 +115,7 @@ pub async fn fuzzy_search_pdfs(conn: &libsql::Connection, query: &str) -> Result
             }
 
             injector.push(
-                (String::from(page_text), i, base_path_str.clone()),
+                (page_text, i, base_path_str.clone()),
                 |haystack, columns| {
                     columns[0] = Utf32String::from(haystack.0.as_str());
                 },

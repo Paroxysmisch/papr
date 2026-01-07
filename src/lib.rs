@@ -238,8 +238,7 @@ pub async fn handle_search(conn: &libsql::Connection, query: String) -> Result<(
             Path::new(&pdf_match_result.canonical_path)
                 .file_name()
                 .and_then(|s| s.to_str())
-                .unwrap_or("Unknown")
-                .to_string(),
+                .unwrap_or("Unknown"),
             pdf_match_result.canonical_path,
             pdf_match_result.page,
             pdf_match_result.excerpt
