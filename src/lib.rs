@@ -7,7 +7,7 @@ use inquire::{Confirm, MultiSelect, Text};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
-use crate::search::{PaperMatch};
+use crate::search::PaperMatch;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TagSelection {

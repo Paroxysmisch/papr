@@ -1,8 +1,8 @@
 use anyhow::Result;
 use nucleo::Nucleo;
 use nucleo_matcher::{
-    pattern::{Atom, AtomKind, CaseMatching, Normalization},
     Config, Matcher, Utf32String,
+    pattern::{Atom, AtomKind, CaseMatching, Normalization},
 };
 use std::fmt;
 use std::path::Path;
@@ -216,7 +216,7 @@ pub async fn fuzzy_search_typst(
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "typ") {
+            if path.extension().is_some_and(|ext| ext == "typ") {
                 let content = std::fs::read_to_string(&path)?;
 
                 // Chunk by paragraph (double newline) to provide context
