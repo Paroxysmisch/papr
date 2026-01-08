@@ -181,7 +181,13 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     std::io::copy(&mut content.as_ref(), &mut file)?;
 
     // Create `main.typ` entry point
-    let typ_content = format!("= Notes on: {}\n\nLink: {}\n", title, url);
+    let typ_content = format!(
+        "#set text(font: \"New Computer Modern\")\n
+        #show heading: it => [#it #v(0.2em)]\n\n
+        #text(size: 2em)[#link(\"{}\")[{}]]\n\n
+        ",
+        url, title
+    );
     fs::write(summary_path.join("main.typ"), typ_content)?;
 
     // Update papers table
