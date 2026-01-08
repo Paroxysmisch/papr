@@ -427,12 +427,19 @@ pub async fn handle_notes(conn: &libsql::Connection, query: String) -> Result<()
     Ok(())
 }
 
-pub fn get_db_path() -> Result<PathBuf> {
-    let proj_dirs = ProjectDirs::from("com", "", "papr")
-        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let data_dir = proj_dirs.data_dir();
-    fs::create_dir_all(data_dir)?;
-    Ok(data_dir.join("papr.db"))
+pub fn get_db_path(global: bool) -> Result<PathBuf> {
+    if global {
+        let proj_dirs = ProjectDirs::from("com", "", "papr")
+            .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        let data_dir = proj_dirs.data_dir();
+        fs::create_dir_all(data_dir)?;
+        Ok(data_dir.join("papr.db"))
+    } else {
+        let mut db_path = PathBuf::new();
+        db_path.push(".");
+        db_path.push("papr.db");
+        Ok(db_path)
+    }
 }
 
 async fn get_all_tags(conn: &libsql::Connection) -> Result<Vec<TagSelection>> {

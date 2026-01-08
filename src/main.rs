@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use libsql::Builder;
 use papr::{
     get_db_path, handle_add, handle_cite, handle_notes, handle_remove, handle_retag, handle_search,
@@ -8,6 +8,10 @@ use papr::{
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
 struct Cli {
+    /// Use the global database instead of the local one
+    #[arg(short, long, global = true, action = ArgAction::SetTrue)]
+    pub global: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -43,7 +47,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let db_path = get_db_path()?;
+    let db_path = get_db_path(cli.global)?;
 
     // Initialize DB
     println!("DB file at {:?}", db_path);
