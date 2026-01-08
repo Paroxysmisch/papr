@@ -182,10 +182,9 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
 
     // Create `main.typ` entry point
     let typ_content = format!(
-        "#set text(font: \"New Computer Modern\")\n
-        #show heading: it => [#it #v(0.2em)]\n\n
-        #text(size: 2em)[#link(\"{}\")[{}]]\n\n
-        ",
+        "#set text(font: \"New Computer Modern\")
+#show heading: it => [#it #v(0.2em)]\n
+#text(size: 2em)[#link(\"{}\")[{}]]\n",
         url, title
     );
     fs::write(summary_path.join("main.typ"), typ_content)?;

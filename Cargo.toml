@@ -1,6 +1,6 @@
 [package]
 name = "papr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "`papr` is a PhD paper management system, allowing you to tag papers, associate Typst notes with them, and fuzzy search PDFs and notes."
 license = "MIT"
