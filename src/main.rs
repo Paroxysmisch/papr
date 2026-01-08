@@ -36,8 +36,6 @@ enum Commands {
     Remove { query: String },
     /// Compile and open the Typst summary
     Notes { query: String },
-    /// Sync the DB
-    Sync,
     /// Change the tags assigned to a paper
     Tag { query: String },
     /// Change the citation assigned to a paper
@@ -84,7 +82,6 @@ async fn main() -> Result<()> {
         Commands::Search { query, tags, pdf } => handle_search(&conn, query, tags, pdf).await?,
         Commands::Remove { query } => handle_remove(&conn, query).await?,
         Commands::Notes { query } => handle_notes(&conn, query).await?,
-        Commands::Sync => println!("Sync stub"),
         Commands::Tag { query } => handle_retag(&conn, query).await?,
         Commands::Cite { query } => handle_cite(&conn, query).await?,
     }
