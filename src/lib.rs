@@ -3,7 +3,7 @@ mod search;
 use anyhow::{Context, Result};
 use chrono::Local;
 use directories::ProjectDirs;
-use inquire::{Confirm, MultiSelect, Select, Text};
+use inquire::{Confirm, Editor, MultiSelect, Select, Text};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{fmt, fs};
@@ -117,6 +117,10 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
     let url = Text::new("Paper PDF URL:")
         .prompt()
         .context("Invalid URL.")?;
+    let citation = Editor::new("Paper citation:")
+        .with_help_message("Save and exit editor to confirm changes.")
+        .prompt_skippable()
+        .context("Invalid citation.")?;
     let final_tag_names = get_tag_selections(conn).await?;
 
     // Start downloading PDF before creating any directories for easy clean-up,
@@ -182,11 +186,12 @@ pub async fn handle_add(conn: &libsql::Connection) -> Result<()> {
 
     // Update papers table
     conn.execute(
-        "INSERT OR REPLACE INTO papers (canonical_base_path, url, date_added) VALUES (?1, ?2, ?3)",
+        "INSERT OR REPLACE INTO papers (canonical_base_path, url, date_added, citation) VALUES (?1, ?2, ?3, ?4)",
         (
             canonical_base_path.clone(),
             url.clone(),
             Local::now().format("%Y-%m-%d").to_string(),
+            citation.unwrap_or_default(),
         ),
     )
     .await
@@ -294,7 +299,7 @@ pub async fn handle_retag(conn: &libsql::Connection, query: String) -> Result<()
         .prompt()
         .context("No paper selected for retagging.")?;
 
-    let paper_id = paper_selection.id; // Assuming the first element of the tuple is the ID
+    let paper_id = paper_selection.id;
 
     let final_tag_names = get_tag_selections(conn).await?;
 
@@ -311,6 +316,51 @@ pub async fn handle_retag(conn: &libsql::Connection, query: String) -> Result<()
     .await?;
 
     tag_paper(conn, paper_id, final_tag_names).await?;
+
+    Ok(())
+}
+
+pub async fn handle_cite(conn: &libsql::Connection, query: String) -> Result<()> {
+    let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
+    if matching_papers.is_empty() {
+        anyhow::bail!("No papers found matching '{}'", query);
+    }
+    let paper_selection = Select::new("Select paper to retag:", matching_papers)
+        .prompt()
+        .context("No paper selected for retagging.")?;
+
+    let paper_id = paper_selection.id;
+
+    // Fetch the current citation value
+    let mut rows = conn
+        .query("SELECT citation FROM papers WHERE id = ?1", [paper_id])
+        .await?;
+
+    let current_citation: String = if let Some(row) = rows.next().await? {
+        row.get(0)?
+    } else {
+        anyhow::bail!("Paper ID {} not found in database.", paper_id);
+    };
+
+    println!("\nCurrent Citation:\n{}\n", current_citation);
+
+    let new_citation = Editor::new("Edit citation:")
+        .with_predefined_text(&current_citation)
+        .with_help_message("Save and exit editor to confirm changes.")
+        .prompt()
+        .context("Invalid citation input.")?;
+
+    // Update the database if citation changed
+    if new_citation != current_citation {
+        conn.execute(
+            "UPDATE papers SET citation = ?1 WHERE id = ?2",
+            [new_citation, paper_id.to_string()],
+        )
+        .await?;
+        println!("Citation updated successfully!");
+    } else {
+        println!("No changes made.");
+    }
 
     Ok(())
 }

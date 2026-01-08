@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use libsql::Builder;
-use papr::{get_db_path, handle_add, handle_notes, handle_remove, handle_retag, handle_search};
+use papr::{
+    get_db_path, handle_add, handle_cite, handle_notes, handle_remove, handle_retag, handle_search,
+};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -34,6 +36,8 @@ enum Commands {
     Sync,
     /// Change the tags assigned to a paper
     Tag { query: String },
+    /// Change the citation assigned to a paper
+    Cite { query: String },
 }
 
 #[tokio::main]
@@ -52,7 +56,8 @@ async fn main() -> Result<()> {
             id INTEGER PRIMARY KEY,
             canonical_base_path TEXT NOT NULL UNIQUE,
             url TEXT NOT NULL,
-            date_added TEXT NOT NULL
+            date_added TEXT NOT NULL,
+            citation TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY,
@@ -77,6 +82,7 @@ async fn main() -> Result<()> {
         Commands::Notes { query } => handle_notes(&conn, query).await?,
         Commands::Sync => println!("Sync stub"),
         Commands::Tag { query } => handle_retag(&conn, query).await?,
+        Commands::Cite { query } => handle_cite(&conn, query).await?,
     }
 
     Ok(())
