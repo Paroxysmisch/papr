@@ -5,6 +5,7 @@ use chrono::Local;
 use directories::ProjectDirs;
 use inquire::{Confirm, MultiSelect, Select, Text};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{fmt, fs};
 
 use crate::search::PaperMatch;
@@ -310,6 +311,68 @@ pub async fn handle_retag(conn: &libsql::Connection, query: String) -> Result<()
     .await?;
 
     tag_paper(conn, paper_id, final_tag_names).await?;
+
+    Ok(())
+}
+
+pub async fn handle_notes(conn: &libsql::Connection, query: String) -> Result<()> {
+    let matching_papers = search::fuzzy_search_papers(conn, &query).await?;
+    if matching_papers.is_empty() {
+        anyhow::bail!("No papers found matching '{}'", query);
+    }
+    let paper_selection = Select::new("Select paper to compile notes for:", matching_papers)
+        .prompt()
+        .context("No paper selected.")?;
+
+    let base_path_str = paper_selection.canonical_base_path;
+    let summary_dir = Path::new(&base_path_str).join("summary");
+
+    // Locate the source .typ file
+    let mut typst_file = summary_dir.join("main.typ");
+    if !typst_file.exists() {
+        let first_typ = std::fs::read_dir(&summary_dir)?
+            .filter_map(|e| e.ok())
+            .find(|e| e.path().extension().is_some_and(|ext| ext == "typ"))
+            .map(|e| e.path());
+
+        match first_typ {
+            Some(path) => typst_file = path,
+            None => anyhow::bail!("No .typ files found in {:?}", summary_dir),
+        }
+    }
+
+    let output_pdf = typst_file.with_extension("pdf");
+
+    // Force an initial compile so the file always exists
+    println!("Performing initial build...");
+    Command::new("typst")
+        .arg("compile")
+        .arg(&typst_file)
+        .arg(&output_pdf)
+        .status()?;
+
+    // Open the PDF viewer first
+    if output_pdf.exists() {
+        println!("Opening PDF viewer...");
+        let _ = open::that(&output_pdf);
+    }
+
+    // Run 'typst watch', blocking the current terminal session
+    println!("Watch mode started for {}...", typst_file.display());
+    println!("Press Ctrl+C to stop watching.");
+
+    let mut child = Command::new("typst")
+        .arg("watch")
+        .arg(&typst_file)
+        .arg(&output_pdf)
+        .spawn() // Use spawn instead of status so we can manage the process if needed
+        .context("Failed to start 'typst watch'. Is it installed?")?;
+
+    let status = child.wait()?;
+
+    if !status.success() {
+        anyhow::bail!("Typst watch exited with an error.");
+    }
 
     Ok(())
 }

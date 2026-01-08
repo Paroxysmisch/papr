@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use libsql::Builder;
-use papr::{get_db_path, handle_add, handle_remove, handle_retag, handle_search};
+use papr::{get_db_path, handle_add, handle_notes, handle_remove, handle_retag, handle_search};
 
 #[derive(Parser)]
 #[command(name = "papr", about = "PhD paper management system.", version)]
@@ -29,7 +29,7 @@ enum Commands {
     /// Remove a paper and its data
     Remove { query: String },
     /// Compile and open the Typst summary
-    Open { query: String },
+    Notes { query: String },
     /// Sync the DB
     Sync,
     /// Change the tags assigned to a paper
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         Commands::Add => handle_add(&conn).await?,
         Commands::Search { query, tags, pdf } => handle_search(&conn, query, tags, pdf).await?,
         Commands::Remove { query } => handle_remove(&conn, query).await?,
-        Commands::Open { query } => println!("Open stub for ID: {}", query),
+        Commands::Notes { query } => handle_notes(&conn, query).await?,
         Commands::Sync => println!("Sync stub"),
         Commands::Tag { query } => handle_retag(&conn, query).await?,
     }
