@@ -2,6 +2,9 @@
 name = "papr"
 version = "0.1.0"
 edition = "2024"
+description = "`papr` is a PhD paper management system, allowing you to tag papers, associate Typst notes with them, and fuzzy search PDFs and notes."
+license = "MIT"
+repository = "https://github.com/Paroxysmisch/papr"
 
 [dependencies]
 anyhow = "1.0.100"
